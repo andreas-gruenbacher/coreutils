@@ -2886,6 +2886,27 @@ file_has_acl_cache (char const *file, struct fileinfo *f)
   return n;
 }
 
+/* See file_has_acl_cache. */
+static int
+file_has_richacl_cache (char const *file, struct fileinfo *f)
+{
+  /* st_dev of the most recently processed device for which we've
+     found that file_has_richacl fails indicating lack of support.  */
+  static dev_t unsupported_device;
+
+  if (f->stat.st_dev == unsupported_device)
+    {
+      errno = ENOTSUP;
+      return 0;
+    }
+
+  errno = 0;
+  int n = file_has_richacl (file, &f->stat);
+  if (n <= 0 && errno_unsupported (errno))
+    unsupported_device = f->stat.st_dev;
+  return n;
+}
+
 /* Cache has_capability failure, when it's trivial to do.
    Like has_capability, but when F's st_dev says it's on a file
    system lacking capability support, return 0 with ENOTSUP immediately.  */
@@ -3072,8 +3093,10 @@ gobble_file (char const *name, enum filetype type, ino_t inode,
           if (err == 0 && format == long_format)
             {
               int n = file_has_acl_cache (absolute_name, f);
-              err = (n < 0);
-              have_acl = (0 < n);
+	      if (n <= 0 && errno_unsupported (errno))
+		n = file_has_richacl_cache (absolute_name, f);
+	      err = (n < 0);
+	      have_acl = (0 < n);
             }
 
           f->acl_type = (!have_scontext && !have_acl
